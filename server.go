@@ -12,10 +12,28 @@ type OscEvent struct {
 	OscMessage   *osc.Message
 }
 
-/*
-func queueConsumer(queue goconcurrentqueue.Queue)) {
+func queueConsumer(queue goconcurrentqueue.Queue) {
+	for {
+		value, err := queue.DequeueOrWaitForNextElement()
+		if err != nil {
+			break
+		}
+		handleQueueElement(value)
+	}
 }
-*/
+
+func handleOscEvent(o OscEvent) {
+    fmt.Printf("Handling OscEvent: %v\n", o)
+}
+
+func handleQueueElement(i interface{}) {
+	switch v := i.(type) {
+	case OscEvent:
+		handleOscEvent(v)
+	default:
+    fmt.Printf("Dequeued unknown element of type %T: %v\n", v, v)
+	}
+}
 
 func main() {
 
@@ -23,16 +41,7 @@ func main() {
 	var (
 		fifo = goconcurrentqueue.NewFIFO()
 	)
-	go func() {
-		fmt.Println("1 - Waiting for next enqueued element")
-		for {
-			value, err := fifo.DequeueOrWaitForNextElement()
-			if err != nil {
-				break
-			}
-			fmt.Printf("2 - Dequeued element: %v\n", value)
-		}
-	}()
+	go queueConsumer(fifo)
 
 	d := osc.NewStandardDispatcher()
 	d.AddMsgHandler("*", func(msg *osc.Message) {
