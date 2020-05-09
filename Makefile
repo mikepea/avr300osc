@@ -52,3 +52,19 @@ test:
 	exit 0
 
 
+## Build the server binary
+.PHONY: build
+build:
+	go build
+
+## install to /usr/local/bin
+.PHONY: install
+install: build
+	sudo install -m 0755 avr300osc /usr/local/bin/avr300osc
+
+## Tidy up build files
+.PHONY: clean
+clean:
+	rm ./avr300osc
+
+
