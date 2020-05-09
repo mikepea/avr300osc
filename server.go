@@ -27,15 +27,24 @@ func handleAmpVolume(o OscEvent) {
 	fmt.Printf("Handling Amp Volume: %v\n", o.OscMessage.Arguments)
 }
 
-func handleAmpPower(o OscEvent) {
-	fmt.Printf("Handling Amp Power: %v\n", o.OscMessage.Arguments)
+func handleAmpPowerOn(o OscEvent) {
 	arcamctl.PowerOn()
+}
+
+func handleAmpPowerOff(o OscEvent) {
+	arcamctl.PowerOff()
 }
 
 func handleOscEvent(o OscEvent) {
 	address := o.OscMessage.Address
-	if address == "/clean__avr_amp__power" {
-		handleAmpPower(o)
+	if address == "/clean__avr_amp__power_on" {
+		handleAmpPowerOn(o)
+	} else if address == "/clean__avr_amp__power_off" {
+		handleAmpPowerOff(o)
+	} else if address == "/clean__avr_amp__mute" {
+		arcamctl.Mute()
+	} else if address == "/clean__avr_amp__unmute" {
+		arcamctl.Unmute()
 	} else if address == "/clean__avr_amp__volume" {
 		handleAmpVolume(o)
 	} else {
