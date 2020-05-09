@@ -18,6 +18,20 @@ func init() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	go reader(s)
+}
+
+func reader(s *serial.Port) {
+	log.Println("Setting up port reader")
+	for {
+		buf := make([]byte, 128)
+		n, err := s.Read(buf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("%q", buf[:n])
+	}
 }
 
 func PowerOn() {
