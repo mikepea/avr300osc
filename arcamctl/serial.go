@@ -11,6 +11,14 @@ const SERIAL_BAUD = 38400
 
 var s *serial.Port
 
+type ArcamAmpState struct {
+	CurrentVolume int
+	PoweredOn     bool
+	MuteOn        bool
+}
+
+var ampState ArcamAmpState
+
 func init() {
 	log.Println("init: Opening port")
 	c := &serial.Config{Name: SERIAL_DEV, Baud: SERIAL_BAUD}
@@ -135,6 +143,37 @@ func Mute() {
 func Unmute() {
 	log.Println("Unmute called")
 	_, err := s.Write([]byte("PC_.11\r"))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func VolumeInc() {
+	log.Println("VolumeInc called")
+	_, err := s.Write([]byte("PC_/11\r"))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func VolumeDec() {
+	log.Println("VolumeDec called")
+	_, err := s.Write([]byte("PC_/10\r"))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func VolumeSet(v int) {
+	if v < 0 || v > 100 {
+		log.Printf("SetVolume: volume must be between 0 and 100")
+		return
+	}
+	log.Printf("SetVolume called with volume %d", v)
+	msg := []byte("PC_01")
+	msg = append(msg, 0x31+byte(v))
+	msg = append(msg, 0x0d) // \r
+	_, err := s.Write(msg)
 	if err != nil {
 		log.Fatal(err)
 	}

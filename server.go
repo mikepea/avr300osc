@@ -24,7 +24,10 @@ func queueConsumer(queue goconcurrentqueue.Queue) {
 }
 
 func handleAmpVolume(o OscEvent) {
-	fmt.Printf("Handling Amp Volume: %v\n", o.OscMessage.Arguments)
+	// Argument is a float from 0 to 1
+	// convert to an int from 0 to 100
+	volume := int(o.OscMessage.Arguments[0].(float32) * 100)
+	arcamctl.VolumeSet(volume)
 }
 
 func handleAmpPowerOn(o OscEvent) {
