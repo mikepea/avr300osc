@@ -1,0 +1,9 @@
+[Unit]
+Description=AVR300 OSC Controller
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/avr300osc
+
+[Install]
+WantedBy=multi-user.target

@@ -62,6 +62,27 @@ build:
 install: build
 	sudo install -m 0755 avr300osc /usr/local/bin/avr300osc
 
+## deploy to systemd
+.PHONY: deploy-systemd
+deploy-systemd: install
+	sudo install -m 0644 systemd/avr300osc.service /lib/systemd/system/
+	sudo systemctl daemon-reload
+
+## deploy
+.PHONY: deploy
+deploy: install
+	sudo systemctl restart avr300osc
+
+## tail systemd logs
+.PHONY: status
+status:
+	systemctl status avr300osc
+
+## tail systemd logs
+.PHONY: logtail
+logtail:
+	sudo journalctl -f -u avr300osc
+
 ## Tidy up build files
 .PHONY: clean
 clean:
