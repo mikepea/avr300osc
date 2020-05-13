@@ -148,6 +148,34 @@ func Unmute() {
 	}
 }
 
+func AudioSelectSat() {
+	log.Println("AudioSelectSat called")
+	_, err := s.Write([]byte("PC_111\r"))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func AudioSelectPVR() {
+	AudioSelectAux()
+}
+
+func AudioSelectAux() {
+	log.Println("AudioSelectAux called")
+	_, err := s.Write([]byte("PC_113\r"))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func AudioSelectCD() {
+	log.Println("AudioSelectCD called")
+	_, err := s.Write([]byte("PC_115\r"))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func VolumeInc() {
 	log.Println("VolumeInc called")
 	_, err := s.Write([]byte("PC_/11\r"))

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"github.com/enriquebris/goconcurrentqueue"
 	"github.com/hypebeast/go-osc/osc"
 	"github.com/mikepea/avr300osc/arcamctl"
+	"log"
 	"time"
 )
 
@@ -30,6 +30,20 @@ func handleAmpVolume(o OscEvent) {
 	arcamctl.VolumeSet(volume)
 }
 
+func handleAmpAudioSource(o OscEvent) {
+	s := o.OscMessage.Arguments[0].(int32)
+	switch s {
+	case 0:
+		arcamctl.AudioSelectSat()
+	case 1:
+		arcamctl.AudioSelectAux()
+	case 2:
+		arcamctl.AudioSelectCD()
+	default:
+		log.Printf("handleAmpAudioSource: unknown source %d", s)
+	}
+}
+
 func handleAmpPowerOn(o OscEvent) {
 	arcamctl.PowerOn()
 }
@@ -50,8 +64,10 @@ func handleOscEvent(o OscEvent) {
 		arcamctl.Unmute()
 	} else if address == "/clean__avr_amp__volume" {
 		handleAmpVolume(o)
+	} else if address == "/clean__avr_amp__source" {
+		handleAmpAudioSource(o)
 	} else {
-		fmt.Printf("Unknown OSC address: %s\n - value %v", address, o.OscMessage.Arguments)
+		log.Printf("Unknown OSC address: %s\n - value %v", address, o.OscMessage.Arguments)
 	}
 }
 
@@ -60,7 +76,7 @@ func handleQueueElement(i interface{}) {
 	case OscEvent:
 		handleOscEvent(v)
 	default:
-		fmt.Printf("Dequeued unknown element of type %T: %v\n", v, v)
+		log.Printf("Dequeued unknown element of type %T: %v\n", v, v)
 	}
 }
 
@@ -74,7 +90,7 @@ func main() {
 
 	d := osc.NewStandardDispatcher()
 	d.AddMsgHandler("*", func(msg *osc.Message) {
-		fmt.Printf("Enqueuing: ")
+		log.Printf("Enqueuing: ")
 		osc.PrintMessage(msg)
 		fifo.Enqueue(OscEvent{time.Now(), msg})
 	})
