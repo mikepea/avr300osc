@@ -13,6 +13,8 @@ type OscEvent struct {
 	OscMessage   *osc.Message
 }
 
+var a *arcamctl.ArcamAVRController
+
 func queueConsumer(queue goconcurrentqueue.Queue) {
 	for {
 		value, err := queue.DequeueOrWaitForNextElement()
@@ -27,29 +29,29 @@ func handleAmpVolume(o OscEvent) {
 	// Argument is a float from 0 to 1
 	// convert to an int from 0 to 100
 	volume := int(o.OscMessage.Arguments[0].(float32) * 100)
-	arcamctl.VolumeSet(volume)
+	a.VolumeSet(volume)
 }
 
 func handleAmpAudioSource(o OscEvent) {
 	s := o.OscMessage.Arguments[0].(int32)
 	switch s {
 	case 0:
-		arcamctl.AudioSelectSat()
+		a.AudioSelectSat()
 	case 1:
-		arcamctl.AudioSelectAux()
+		a.AudioSelectAux()
 	case 2:
-		arcamctl.AudioSelectCD()
+		a.AudioSelectCD()
 	default:
 		log.Printf("handleAmpAudioSource: unknown source %d", s)
 	}
 }
 
 func handleAmpPowerOn(o OscEvent) {
-	arcamctl.PowerOn()
+	a.PowerOn()
 }
 
 func handleAmpPowerOff(o OscEvent) {
-	arcamctl.PowerOff()
+	a.PowerOff()
 }
 
 func handleOscEvent(o OscEvent) {
@@ -59,9 +61,9 @@ func handleOscEvent(o OscEvent) {
 	} else if address == "/clean__avr_amp__power_off" {
 		handleAmpPowerOff(o)
 	} else if address == "/clean__avr_amp__mute" {
-		arcamctl.Mute()
+		a.Mute()
 	} else if address == "/clean__avr_amp__unmute" {
-		arcamctl.Unmute()
+		a.Unmute()
 	} else if address == "/clean__avr_amp__volume" {
 		handleAmpVolume(o)
 	} else if address == "/clean__avr_amp__source" {
@@ -87,6 +89,12 @@ func main() {
 		fifo = goconcurrentqueue.NewFIFO()
 	)
 	go queueConsumer(fifo)
+
+	var err error
+	a, err = arcamctl.NewArcamAVRController()
+	if err != nil {
+		log.Fatalf("Could not initialize controller: %s", err)
+	}
 
 	d := osc.NewStandardDispatcher()
 	d.AddMsgHandler("*", func(msg *osc.Message) {

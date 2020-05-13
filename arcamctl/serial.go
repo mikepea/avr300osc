@@ -17,18 +17,22 @@ type ArcamAmpState struct {
 	MuteOn        bool
 }
 
-var ampState ArcamAmpState
+type ArcamAVRController struct {
+	State *ArcamAmpState
+	s     *serial.Port
+}
 
-func init() {
+func NewArcamAVRController() (*ArcamAVRController, error) {
 	log.Println("init: Opening port")
 	c := &serial.Config{Name: SERIAL_DEV, Baud: SERIAL_BAUD}
-	var err error
-	s, err = serial.OpenPort(c)
+	s, err := serial.OpenPort(c)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
-
 	go reader(s)
+	return &ArcamAVRController{
+		s: s,
+	}, nil
 }
 
 func handleStatusMessages(msgs []string) {
@@ -116,83 +120,83 @@ func reader(s *serial.Port) {
 	}
 }
 
-func PowerOn() {
+func (a *ArcamAVRController) PowerOn() {
 	log.Println("PowerOn called")
-	_, err := s.Write([]byte("PC_*11\r"))
+	_, err := a.s.Write([]byte("PC_*11\r"))
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func PowerOff() {
+func (a *ArcamAVRController) PowerOff() {
 	log.Println("PowerOff called")
-	_, err := s.Write([]byte("PC_*10\r"))
+	_, err := a.s.Write([]byte("PC_*10\r"))
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func Mute() {
+func (a *ArcamAVRController) Mute() {
 	log.Println("Mute called")
-	_, err := s.Write([]byte("PC_.10\r"))
+	_, err := a.s.Write([]byte("PC_.10\r"))
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func Unmute() {
+func (a *ArcamAVRController) Unmute() {
 	log.Println("Unmute called")
-	_, err := s.Write([]byte("PC_.11\r"))
+	_, err := a.s.Write([]byte("PC_.11\r"))
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func AudioSelectSat() {
+func (a *ArcamAVRController) AudioSelectSat() {
 	log.Println("AudioSelectSat called")
-	_, err := s.Write([]byte("PC_111\r"))
+	_, err := a.s.Write([]byte("PC_111\r"))
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func AudioSelectPVR() {
-	AudioSelectAux()
+func (a *ArcamAVRController) AudioSelectPVR() {
+	a.AudioSelectAux()
 }
 
-func AudioSelectAux() {
+func (a *ArcamAVRController) AudioSelectAux() {
 	log.Println("AudioSelectAux called")
-	_, err := s.Write([]byte("PC_113\r"))
+	_, err := a.s.Write([]byte("PC_113\r"))
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func AudioSelectCD() {
+func (a *ArcamAVRController) AudioSelectCD() {
 	log.Println("AudioSelectCD called")
-	_, err := s.Write([]byte("PC_115\r"))
+	_, err := a.s.Write([]byte("PC_115\r"))
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func VolumeInc() {
+func (a *ArcamAVRController) VolumeInc() {
 	log.Println("VolumeInc called")
-	_, err := s.Write([]byte("PC_/11\r"))
+	_, err := a.s.Write([]byte("PC_/11\r"))
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func VolumeDec() {
+func (a *ArcamAVRController) VolumeDec() {
 	log.Println("VolumeDec called")
-	_, err := s.Write([]byte("PC_/10\r"))
+	_, err := a.s.Write([]byte("PC_/10\r"))
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func VolumeSet(v int) {
+func (a *ArcamAVRController) VolumeSet(v int) {
 	if v < 0 || v > 100 {
 		log.Printf("SetVolume: volume must be between 0 and 100")
 		return
@@ -201,7 +205,7 @@ func VolumeSet(v int) {
 	msg := []byte("PC_01")
 	msg = append(msg, 0x31+byte(v))
 	msg = append(msg, 0x0d) // \r
-	_, err := s.Write(msg)
+	_, err := a.s.Write(msg)
 	if err != nil {
 		log.Fatal(err)
 	}
