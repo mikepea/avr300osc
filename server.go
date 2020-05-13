@@ -82,6 +82,16 @@ func handleQueueElement(i interface{}) {
 	}
 }
 
+func ampStateSender(a *arcamctl.ArcamAVRController) {
+	client := osc.NewClient("192.168.131.175", 8080)
+	for {
+		msg := osc.NewMessage("/clean__avr_amp__test_slider")
+		msg.Append(float32(a.State.Zone1Volume) / 100)
+		client.Send(msg)
+		time.Sleep(2 * time.Second)
+	}
+}
+
 func main() {
 
 	addr := "0.0.0.0:8765"
@@ -95,6 +105,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Could not initialize controller: %s", err)
 	}
+	go ampStateSender(a)
 
 	d := osc.NewStandardDispatcher()
 	d.AddMsgHandler("*", func(msg *osc.Message) {
