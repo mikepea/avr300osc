@@ -12,9 +12,9 @@ const SERIAL_BAUD = 38400
 var s *serial.Port
 
 type ArcamAmpState struct {
-	CurrentVolume int
-	PoweredOn     bool
-	MuteOn        bool
+	Zone1Volume int
+	PoweredOn   bool
+	MuteOn      bool
 }
 
 type ArcamAVRController struct {
@@ -73,6 +73,20 @@ func HandleStatusMessage(msg string) {
 
 func handleVolumeSetStatus(msg string) {
 	log.Printf("VolumeSetStatus: %s", msg)
+	if msg[:5] != "AV_0P" {
+		log.Printf("Invalid message: %s", msg)
+	} else if len(msg) != 7 {
+		log.Printf("Invalid message (wrong length): %s", msg)
+		return
+	}
+	zone := byte(msg[5])
+	vol := byte(msg[6])
+	if zone != 0x31 {
+		log.Printf("Zone2 not handled: %s", msg)
+	}
+	volume := int(vol - 0x30)
+	log.Printf("Volume: %d", volume)
+
 }
 
 func handleVolumeStatus(msg string) {
@@ -203,7 +217,7 @@ func (a *ArcamAVRController) VolumeSet(v int) {
 	}
 	log.Printf("SetVolume called with volume %d", v)
 	msg := []byte("PC_01")
-	msg = append(msg, 0x31+byte(v))
+	msg = append(msg, 0x30+byte(v))
 	msg = append(msg, 0x0d) // \r
 	_, err := a.s.Write(msg)
 	if err != nil {
