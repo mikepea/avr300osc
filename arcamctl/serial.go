@@ -61,7 +61,7 @@ func (a *ArcamAVRController) handleStatusMessage(msg string) {
 	case "AV_0":
 		a.handleVolumeSetStatus(msg)
 	case "AV_/":
-		a.handleVolumeStatus(msg)
+		a.handleVolumeSetStatus(msg)
 	case "AV_*":
 		a.handlePowerStatus(msg)
 	case "AV_.":
@@ -75,8 +75,9 @@ func (a *ArcamAVRController) handleStatusMessage(msg string) {
 
 func (a *ArcamAVRController) handleVolumeSetStatus(msg string) {
 	log.Printf("VolumeSetStatus: %s", msg)
-	if msg[:5] != "AV_0P" {
+	if msg[:5] != "AV_0P" && msg[:5] != "AV_/P" {
 		log.Printf("Invalid message: %s", msg)
+		return
 	} else if len(msg) != 7 {
 		log.Printf("Invalid message (wrong length): %s", msg)
 		return
@@ -90,10 +91,6 @@ func (a *ArcamAVRController) handleVolumeSetStatus(msg string) {
 	log.Printf("Volume: %d", volume)
 	a.State.Zone1Volume = volume // TODO this needs to be concurrency safe
 
-}
-
-func (a *ArcamAVRController) handleVolumeStatus(msg string) {
-	log.Printf("VolumeStatus: %s", msg)
 }
 
 func (a *ArcamAVRController) handlePowerStatus(msg string) {
