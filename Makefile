@@ -57,6 +57,11 @@ test:
 build:
 	go build
 
+## Build specifically for Raspberry Pi
+.PHONY: build/pi
+build/pi:
+	env GOOS=linux GOARCH=arm GOARM=5 go build
+
 ## install to /usr/local/bin
 .PHONY: install
 install: build
@@ -72,6 +77,12 @@ deploy-systemd: install
 .PHONY: deploy
 deploy: install
 	sudo systemctl restart avr300osc
+
+.PHONY: remote-deploy
+remote-deploy: build/pi
+	scp avr300osc mikepea@audio-pi:/tmp/
+	ssh mikepea@audio-pi sudo install -o 0755 /tmp/avr300osc /usr/local/bin/
+	ssh mikepea@audio-pi sudo systemctl restart avr300osc
 
 ## tail systemd logs
 .PHONY: status
