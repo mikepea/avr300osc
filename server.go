@@ -4,7 +4,10 @@ import (
 	"github.com/enriquebris/goconcurrentqueue"
 	"github.com/hypebeast/go-osc/osc"
 	"github.com/mikepea/avr300osc/arcamctl"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log"
+	"net/http"
 	"time"
 )
 
@@ -82,14 +85,30 @@ func handleQueueElement(i interface{}) {
 	}
 }
 
+func prometheusExporterUpdate(a *arcamctl.ArcamAVRController) {
+	volumeGauge.Set(float64(a.State.Zone1Volume))
+}
+
 func ampStateSender(a *arcamctl.ArcamAVRController) {
 	client := osc.NewClient("192.168.131.175", 8080)
 	for {
+		prometheusExporterUpdate(a)
 		msg := osc.NewMessage("/clean__avr_amp__test_slider")
 		msg.Append(float32(a.State.Zone1Volume) / 100)
 		client.Send(msg)
 		time.Sleep(2 * time.Second)
 	}
+}
+
+var (
+	volumeGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "amp_volume",
+		Help: "Current Amp Volume (db) 0-100",
+	})
+)
+
+func init() {
+	prometheus.MustRegister(volumeGauge)
 }
 
 func main() {
@@ -118,6 +137,9 @@ func main() {
 		Addr:       addr,
 		Dispatcher: d,
 	}
+
+	http.Handle("/metrics", promhttp.Handler())
+	go http.ListenAndServe(":8080", nil)
 
 	server.ListenAndServe()
 
