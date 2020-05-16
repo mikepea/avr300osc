@@ -5,6 +5,7 @@ import (
 	"github.com/tarm/serial"
 	"log"
 	"strings"
+	"time"
 )
 
 const SERIAL_DEV = "/dev/ttyUSB0"
@@ -13,9 +14,11 @@ const SERIAL_BAUD = 38400
 var s *serial.Port
 
 type ArcamAmpState struct {
-	Zone1Volume int
-	PoweredOn   bool
-	MuteOn      bool
+	SerialWriterQueueLength int
+	Zone1Volume             int
+	PoweredOn               bool
+	Zone1MuteOn             bool
+	Zone1AudioSource        int
 }
 
 type ArcamAVRController struct {
@@ -37,8 +40,9 @@ func NewArcamAVRController() (*ArcamAVRController, error) {
 		serialPort: s,
 		writeFifo:  fifo,
 	}
-	go a.reader()
-	go a.writer(fifo)
+	go a.serialReader()
+	go a.serialWriter()
+	go a.statusPoller()
 	return a, nil
 }
 
@@ -66,7 +70,7 @@ func (a *ArcamAVRController) handleStatusMessage(msg string) {
 	case "AV_0":
 		a.handleVolumeSetStatus(msg)
 	case "AV_/":
-		a.handleVolumeSetStatus(msg)
+		a.handleVolumeChangeStatus(msg)
 	case "AV_*":
 		a.handlePowerStatus(msg)
 	case "AV_.":
@@ -78,39 +82,106 @@ func (a *ArcamAVRController) handleStatusMessage(msg string) {
 	}
 }
 
-func (a *ArcamAVRController) handleVolumeSetStatus(msg string) {
-	log.Printf("VolumeSetStatus: %s", msg)
-	if msg[:5] != "AV_0P" && msg[:5] != "AV_/P" {
+func checkStatusMessage(msg string, header string, length int) bool {
+	if msg[:4] != header {
 		log.Printf("Invalid message: %s", msg)
-		return
-	} else if len(msg) != 7 {
+		return false
+	}
+	msgStatus := string(msg[4])
+	if msgStatus == "R" {
+		return false // R is ok to silently fail on
+	}
+	if msgStatus != "P" {
+		log.Printf("Invalid message: %s", msg)
+		return false
+	}
+	if len(msg) != length {
 		log.Printf("Invalid message (wrong length): %s", msg)
+		return false
+	}
+	return true
+}
+
+func (a *ArcamAVRController) handleVolumeChangeStatus(msg string) {
+	if !checkStatusMessage(msg, "AV_/", 7) {
 		return
 	}
+	a.handleVolumeStatus(msg)
+}
+
+func (a *ArcamAVRController) handleVolumeSetStatus(msg string) {
+	if !checkStatusMessage(msg, "AV_0", 7) {
+		return
+	}
+	a.handleVolumeStatus(msg)
+}
+
+func (a *ArcamAVRController) handleVolumeStatus(msg string) {
 	zone := byte(msg[5])
-	vol := byte(msg[6])
+	val := byte(msg[6])
 	if zone != 0x31 {
 		log.Printf("Zone2 not handled: %s", msg)
 	}
-	volume := int(vol - 0x30)
+	volume := int(val - 0x30)
 	log.Printf("Volume: %d", volume)
 	a.State.Zone1Volume = volume // TODO this needs to be concurrency safe
 
 }
 
 func (a *ArcamAVRController) handlePowerStatus(msg string) {
-	log.Printf("PowerStatus: %s", msg)
+	if !checkStatusMessage(msg, "AV_*", 7) {
+		return
+	}
+	zone := byte(msg[5])
+	val := byte(msg[6])
+	if zone != 0x31 {
+		log.Printf("Zone2 not handled: %s", msg)
+	}
+	if val == 0x30 {
+		a.State.PoweredOn = true
+	} else {
+		a.State.PoweredOn = false
+	}
 }
 
 func (a *ArcamAVRController) handleMuteStatus(msg string) {
-	log.Printf("MuteStatus: %s", msg)
+	if checkStatusMessage(msg, "AV_.", 7) == false {
+		return
+	}
+	zone := byte(msg[5])
+	val := byte(msg[6])
+	if zone != 0x31 {
+		log.Printf("Zone2 not handled: %s", msg)
+	}
+	if val == 0x30 {
+		a.State.Zone1MuteOn = true
+	} else {
+		a.State.Zone1MuteOn = false
+	}
 }
 
 func (a *ArcamAVRController) handleSourceStatus(msg string) {
-	log.Printf("SourceStatus: %s", msg)
+	if checkStatusMessage(msg, "AV_1", 7) == false {
+		return
+	}
+	zone := byte(msg[5])
+	val := byte(msg[6])
+	if zone != 0x31 {
+		log.Printf("Zone2 not handled: %s", msg)
+	}
+	// 0: 0x30 DVD
+	// 1: 0x31 SAT
+	// 2: 0x32 AV
+	// 3: 0x33 PVR
+	// 4: 0x34 VCR
+	// 5: 0x35 CD
+	// 6: 0x36 FM
+	// 7: 0x37 AM
+	// 8: 0x38 DVDA
+	a.State.Zone1AudioSource = int(val) - 0x30
 }
 
-func (a *ArcamAVRController) reader() {
+func (a *ArcamAVRController) serialReader() {
 	log.Println("Setting up port reader")
 	var msgOverrun []byte
 	for {
@@ -139,9 +210,9 @@ func (a *ArcamAVRController) reader() {
 	}
 }
 
-func (a *ArcamAVRController) writer(queue goconcurrentqueue.Queue) {
+func (a *ArcamAVRController) serialWriter() {
 	for {
-		value, err := queue.DequeueOrWaitForNextElement()
+		value, err := a.writeFifo.DequeueOrWaitForNextElement()
 		if err != nil {
 			log.Fatalf("Error reading from writer queue: %s", err)
 		}
@@ -157,6 +228,25 @@ func (a *ArcamAVRController) QueueWrite(msg []byte) {
 	a.writeFifo.Enqueue(msg)
 }
 
+func (a *ArcamAVRController) QueueStatusPoller() {
+	a.State.SerialWriterQueueLength = a.writeFifo.GetLen()
+	time.Sleep(1 * time.Second)
+}
+
+func (a *ArcamAVRController) statusPoller() {
+	for {
+		a.PowerStatus()
+		if a.State.PoweredOn {
+			// these return an 'R' code if amp is on standby,
+			// so no point in polling if we aren't on.
+			a.MuteStatus()
+			a.VolumeStatus()
+			a.AudioSelectStatus()
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 func (a *ArcamAVRController) PowerOn() {
 	log.Println("PowerOn called")
 	msg := []byte("PC_*11\r")
@@ -169,6 +259,11 @@ func (a *ArcamAVRController) PowerOff() {
 	a.QueueWrite(msg)
 }
 
+func (a *ArcamAVRController) PowerStatus() {
+	msg := []byte("PC_*19\r")
+	a.QueueWrite(msg)
+}
+
 func (a *ArcamAVRController) Mute() {
 	log.Println("Mute called")
 	msg := []byte("PC_.10\r")
@@ -178,6 +273,16 @@ func (a *ArcamAVRController) Mute() {
 func (a *ArcamAVRController) Unmute() {
 	log.Println("Unmute called")
 	msg := []byte("PC_.11\r")
+	a.QueueWrite(msg)
+}
+
+func (a *ArcamAVRController) MuteStatus() {
+	msg := []byte("PC_.19\r")
+	a.QueueWrite(msg)
+}
+
+func (a *ArcamAVRController) AudioSelectStatus() {
+	msg := []byte("PC_119\r")
 	a.QueueWrite(msg)
 }
 
@@ -200,6 +305,11 @@ func (a *ArcamAVRController) AudioSelectAux() {
 func (a *ArcamAVRController) AudioSelectCD() {
 	log.Println("AudioSelectCD called")
 	msg := []byte("PC_115\r")
+	a.QueueWrite(msg)
+}
+
+func (a *ArcamAVRController) VolumeStatus() {
+	msg := []byte("PC_/19\r")
 	a.QueueWrite(msg)
 }
 

@@ -85,8 +85,20 @@ func handleQueueElement(i interface{}) {
 	}
 }
 
+func boolToFloat64(v bool) float64 {
+	if v {
+		return 1
+	} else {
+		return 0
+	}
+}
+
 func prometheusExporterUpdate(a *arcamctl.ArcamAVRController) {
 	volumeGauge.Set(float64(a.State.Zone1Volume))
+	muteOnGauge.Set(boolToFloat64(a.State.Zone1MuteOn))
+	poweredOnGauge.Set(boolToFloat64(a.State.PoweredOn))
+	audioSourceGauge.Set(float64(a.State.Zone1AudioSource))
+	serialFifoSizeGauge.Set(float64(a.State.SerialWriterQueueLength))
 }
 
 func ampStateSender(a *arcamctl.ArcamAVRController) {
@@ -105,10 +117,35 @@ var (
 		Name: "amp_volume",
 		Help: "Current Amp Volume (db) 0-100",
 	})
+	poweredOnGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "amp_power_on_status",
+		Help: "Current Amp Powered On State (0 standby, 1 on)",
+	})
+	muteOnGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "amp_mute_on_status",
+		Help: "Current Amp Mute State (0 off, 1 on)",
+	})
+	audioSourceGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "amp_audio_source_status",
+		Help: "Current Amp Audio Source [0:DVD, 1:SAT, ..., 8:DVDA]",
+	})
+	oscFifoSizeGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "osc_fifo_size",
+		Help: "Length of inbound OSC message queue",
+	})
+	serialFifoSizeGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "serial_fifo_size",
+		Help: "Length of Amp RS232 Writer message queue",
+	})
 )
 
 func init() {
 	prometheus.MustRegister(volumeGauge)
+	prometheus.MustRegister(poweredOnGauge)
+	prometheus.MustRegister(muteOnGauge)
+	prometheus.MustRegister(audioSourceGauge)
+	prometheus.MustRegister(oscFifoSizeGauge)
+	prometheus.MustRegister(serialFifoSizeGauge)
 }
 
 func main() {
@@ -131,6 +168,7 @@ func main() {
 		log.Printf("Enqueuing: ")
 		osc.PrintMessage(msg)
 		fifo.Enqueue(OscEvent{time.Now(), msg})
+		oscFifoSizeGauge.Set(float64(fifo.GetLen()))
 	})
 
 	server := &osc.Server{
