@@ -71,6 +71,9 @@ func handleOscEvent(o OscEvent) {
 		handleAmpVolume(o)
 	} else if address == "/clean__avr_amp__source" {
 		handleAmpAudioSource(o)
+	} else if address == "/clean__avr_amp__forcequit" {
+		// bail (and let systemd restart us)
+		log.Fatalf("OSC forcequit received: Quitting.")
 	} else {
 		log.Printf("Unknown OSC address: %s\n - value %v", address, o.OscMessage.Arguments)
 	}

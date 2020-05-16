@@ -1,9 +1,13 @@
 [Unit]
 Description=AVR300 OSC Controller
+StartLimitIntervalSec=500
+StartLimitBurst=5
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/avr300osc
+Restart=on-failure
+RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
