@@ -54,6 +54,11 @@ func handleAmpPowerOn(o OscEvent) {
 }
 
 func handleAmpPowerOff(o OscEvent) {
+	// janky hack so i reduce the likelihood of a high volume
+	// surprise in the morning
+	if a.State.Zone1Volume > 30 {
+		a.VolumeSet(30)
+	}
 	a.PowerOff()
 }
 
