@@ -137,10 +137,10 @@ func (a *ArcamAVRController) handlePowerStatus(msg string) {
 	if zone != 0x31 {
 		log.Printf("Zone2 not handled: %s", msg)
 	}
-	if val == 0x30 {
+	if val == 0x31 {
 		a.State.PoweredOn = true
 	} else {
-		a.State.PoweredOn = false
+		a.State.PoweredOn = false // standby, or off.
 	}
 }
 
