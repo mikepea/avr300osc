@@ -123,7 +123,6 @@ func (a *ArcamAVRController) handleVolumeStatus(msg string) {
 		log.Printf("Zone2 not handled: %s", msg)
 	}
 	volume := int(val - 0x30)
-	log.Printf("Volume: %d", volume)
 	a.State.Zone1Volume = volume // TODO this needs to be concurrency safe
 
 }

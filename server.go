@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/enriquebris/goconcurrentqueue"
 	"github.com/hypebeast/go-osc/osc"
 	"github.com/mikepea/avr300osc/arcamctl"
@@ -109,13 +110,53 @@ func prometheusExporterUpdate(a *arcamctl.ArcamAVRController) {
 	serialFifoSizeGauge.Set(float64(a.State.SerialWriterQueueLength))
 }
 
+func sendOscVolume(client *osc.Client, a *arcamctl.ArcamAVRController) {
+	msg := osc.NewMessage("/clean__avr_amp__volume")
+	msg.Append(float32(a.State.Zone1Volume) / 100)
+	client.Send(msg)
+}
+
+func translateAudioSourceToOscVal(a int) int {
+	if a == 1 {
+		return 0 // SAT
+	}
+	if a == 3 {
+		return 1 // AUX/PVR
+	}
+	if a == 5 {
+		return 2 // CD
+	}
+	return -1
+}
+
+func sendOscAudioSource(client *osc.Client, a *arcamctl.ArcamAVRController) {
+	msg := osc.NewMessage("/clean__avr_amp__source")
+	ampSource := a.State.Zone1AudioSource
+	if s := translateAudioSourceToOscVal(ampSource); s >= 0 {
+		msg.Append(float32(s))
+		client.Send(msg)
+	}
+}
+
+func sendOscTextStatus(client *osc.Client, a *arcamctl.ArcamAVRController) {
+	msg := osc.NewMessage("/clean__avr_amp__status")
+	v := a.State.Zone1Volume
+	s := a.State.Zone1AudioSource
+	p := 0
+	if a.State.PoweredOn {
+		p = 1
+	}
+	msg.Append(fmt.Sprintf("P:%d V%d S:%d", p, v, s))
+	client.Send(msg)
+}
+
 func ampStateSender(a *arcamctl.ArcamAVRController) {
 	client := osc.NewClient("192.168.131.175", 8080)
 	for {
 		prometheusExporterUpdate(a)
-		msg := osc.NewMessage("/clean__avr_amp__test_slider")
-		msg.Append(float32(a.State.Zone1Volume) / 100)
-		client.Send(msg)
+		sendOscVolume(client, a)
+		sendOscAudioSource(client, a)
+		sendOscTextStatus(client, a)
 		time.Sleep(2 * time.Second)
 	}
 }
