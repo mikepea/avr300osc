@@ -1,6 +1,7 @@
 package arcamctl
 
 import (
+	"fmt"
 	"github.com/enriquebris/goconcurrentqueue"
 	"github.com/tarm/serial"
 	"log"
@@ -16,9 +17,13 @@ var s *serial.Port
 type ArcamAmpState struct {
 	SerialWriterQueueLength int
 	Zone1Volume             int
-	PoweredOn               bool
+	Zone2Volume             int
+	Zone1PoweredOn          bool
+	Zone2PoweredOn          bool
 	Zone1MuteOn             bool
+	Zone2MuteOn             bool
 	Zone1AudioSource        int
+	Zone2AudioSource        int
 }
 
 type ArcamAVRController struct {
@@ -60,6 +65,7 @@ func (a *ArcamAVRController) handleStatusMessages(msgs []string) {
 *  AV_1 - source select
  */
 func (a *ArcamAVRController) handleStatusMessage(msg string) {
+	//log.Printf("handleStatusMessage: %s\n", msg)
 	if len(msg) < 4 {
 		log.Printf("message too short: %v\n", msg)
 		return
@@ -83,6 +89,7 @@ func (a *ArcamAVRController) handleStatusMessage(msg string) {
 }
 
 func checkStatusMessage(msg string, header string, length int) bool {
+	//log.Printf("checkStatusMessage: %s", msg)
 	if msg[:4] != header {
 		log.Printf("Invalid message: %s", msg)
 		return false
@@ -119,12 +126,13 @@ func (a *ArcamAVRController) handleVolumeSetStatus(msg string) {
 func (a *ArcamAVRController) handleVolumeStatus(msg string) {
 	zone := byte(msg[5])
 	val := byte(msg[6])
-	if zone != 0x31 {
-		log.Printf("Zone2 not handled: %s", msg)
-	}
 	volume := int(val - 0x30)
-	a.State.Zone1Volume = volume // TODO this needs to be concurrency safe
-
+	if zone == 0x31 {
+		a.State.Zone1Volume = volume // TODO this needs to be concurrency safe
+	}
+	if zone == 0x32 {
+		a.State.Zone2Volume = volume // TODO this needs to be concurrency safe
+	}
 }
 
 func (a *ArcamAVRController) handlePowerStatus(msg string) {
@@ -133,13 +141,18 @@ func (a *ArcamAVRController) handlePowerStatus(msg string) {
 	}
 	zone := byte(msg[5])
 	val := byte(msg[6])
-	if zone != 0x31 {
-		log.Printf("Zone2 not handled: %s", msg)
-	}
+	state := false
 	if val == 0x31 {
-		a.State.PoweredOn = true
+		state = true
+	}
+	if zone == 0x31 {
+		//log.Printf("handlePowerStatus: setting zone1 to %s", state)
+		a.State.Zone1PoweredOn = state
+	} else if zone == 0x32 {
+		//log.Printf("handlePowerStatus: setting zone2 to %s", state)
+		a.State.Zone2PoweredOn = state
 	} else {
-		a.State.PoweredOn = false // standby, or off.
+		log.Printf("handlePowerStatus: invalid zone %q", zone)
 	}
 }
 
@@ -149,13 +162,17 @@ func (a *ArcamAVRController) handleMuteStatus(msg string) {
 	}
 	zone := byte(msg[5])
 	val := byte(msg[6])
-	if zone != 0x31 {
-		log.Printf("Zone2 not handled: %s", msg)
-	}
+	state := false
 	if val == 0x30 {
-		a.State.Zone1MuteOn = true
+		state = true
+	}
+
+	if zone == 0x31 {
+		a.State.Zone1MuteOn = state
+	} else if zone == 0x32 {
+		a.State.Zone2MuteOn = state
 	} else {
-		a.State.Zone1MuteOn = false
+		log.Printf("zone not handled: %s", zone)
 	}
 }
 
@@ -165,9 +182,6 @@ func (a *ArcamAVRController) handleSourceStatus(msg string) {
 	}
 	zone := byte(msg[5])
 	val := byte(msg[6])
-	if zone != 0x31 {
-		log.Printf("Zone2 not handled: %s", msg)
-	}
 	// 0: 0x30 DVD
 	// 1: 0x31 SAT
 	// 2: 0x32 AV
@@ -177,7 +191,12 @@ func (a *ArcamAVRController) handleSourceStatus(msg string) {
 	// 6: 0x36 FM
 	// 7: 0x37 AM
 	// 8: 0x38 DVDA
-	a.State.Zone1AudioSource = int(val) - 0x30
+	if zone == 0x31 {
+		a.State.Zone1AudioSource = int(val) - 0x30
+	}
+	if zone == 0x32 {
+		a.State.Zone2AudioSource = int(val) - 0x30
+	}
 }
 
 func (a *ArcamAVRController) serialReader() {
@@ -224,6 +243,7 @@ func (a *ArcamAVRController) serialWriter() {
 }
 
 func (a *ArcamAVRController) QueueWrite(msg []byte) {
+	//log.Printf("QueueWrite: %s", msg)
 	a.writeFifo.Enqueue(msg)
 }
 
@@ -234,103 +254,144 @@ func (a *ArcamAVRController) QueueStatusPoller() {
 
 func (a *ArcamAVRController) statusPoller() {
 	for {
-		a.PowerStatus()
-		if a.State.PoweredOn {
+		//log.Printf("statusPoller: %s\n", a.State.Zone1PoweredOn)
+		a.PowerStatus(1)
+		if a.State.Zone1PoweredOn {
 			// these return an 'R' code if amp is on standby,
 			// so no point in polling if we aren't on.
-			a.MuteStatus()
-			a.VolumeStatus()
-			a.AudioSelectStatus()
+			for z := 1; z < 3; z++ { // zone 1 and 2
+				//log.Printf("statusPoller: polling inner status for zone %d", z)
+				a.MuteStatus(z)
+				a.VolumeStatus(z)
+				a.PowerStatus(z)
+				a.AudioSelectStatus(z)
+			}
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 }
 
-func (a *ArcamAVRController) PowerOn() {
-	log.Println("PowerOn called")
-	msg := []byte("PC_*11\r")
+func (a *ArcamAVRController) Power(m int, z int) {
+	//log.Printf("Power: m:%d, z:%d\n", m, z)
+	if m != 0 && m != 1 && m != 9 {
+		log.Printf("Power: mode must be 0, 1 or 9")
+		return
+	}
+	if z != 1 && z != 2 {
+		log.Printf("Power: zone must be 1 or 2")
+		return
+	}
+	msg := []byte(fmt.Sprintf("PC_*%d%d\r", z, m))
+	//log.Printf("Power: msg: %s\n", msg)
 	a.QueueWrite(msg)
 }
 
-func (a *ArcamAVRController) PowerOff() {
-	log.Println("PowerOff called")
-	msg := []byte("PC_*10\r")
+func (a *ArcamAVRController) PowerOn(z int) {
+	a.Power(1, z)
+}
+
+func (a *ArcamAVRController) PowerOff(z int) {
+	a.Power(0, z)
+}
+
+func (a *ArcamAVRController) PowerStatus(z int) {
+	a.Power(9, z)
+}
+
+func (a *ArcamAVRController) MuteGeneric(m int, z int) {
+	if m != 0 && m != 1 && m != 9 {
+		log.Printf("MuteGeneric: mode must be 0, 1 or 9")
+		return
+	}
+	if z != 1 && z != 2 {
+		log.Printf("MuteGeneric: zone must be 1 or 2")
+		return
+	}
+	msg := []byte(fmt.Sprintf("PC_.%d%d\r", z, m))
 	a.QueueWrite(msg)
 }
 
-func (a *ArcamAVRController) PowerStatus() {
-	msg := []byte("PC_*19\r")
+func (a *ArcamAVRController) Mute(z int) {
+	a.MuteGeneric(0, z)
+}
+
+func (a *ArcamAVRController) Unmute(z int) {
+	a.MuteGeneric(1, z)
+}
+
+func (a *ArcamAVRController) MuteStatus(z int) {
+	a.MuteGeneric(9, z)
+}
+
+func (a *ArcamAVRController) AudioSelect(s int, z int) {
+	if s < 0 || s > 9 {
+		log.Printf("AudioSelect: selection must be 0 thru 9")
+		return
+	}
+	if z != 1 && z != 2 {
+		log.Printf("AudioSelect: zone must be 1 or 2")
+		return
+	}
+	msg := []byte(fmt.Sprintf("PC_1%d%d\r", z, s))
 	a.QueueWrite(msg)
 }
 
-func (a *ArcamAVRController) Mute() {
-	log.Println("Mute called")
-	msg := []byte("PC_.10\r")
+func (a *ArcamAVRController) AudioSelectStatus(z int) {
+	a.AudioSelect(9, z)
+}
+
+func (a *ArcamAVRController) AudioSelectSat(z int) {
+	a.AudioSelect(1, z)
+}
+
+func (a *ArcamAVRController) AudioSelectPVR(z int) {
+	a.AudioSelectAux(z)
+}
+
+func (a *ArcamAVRController) AudioSelectAux(z int) {
+	a.AudioSelect(3, z)
+}
+
+func (a *ArcamAVRController) AudioSelectCD(z int) {
+	a.AudioSelect(5, z)
+}
+
+func (a *ArcamAVRController) Volume(m int, z int) {
+	if m != 0 && m != 1 && m != 9 {
+		log.Printf("Volume: mode must be 0, 1 or 9")
+		return
+	}
+	if z != 1 && z != 2 {
+		log.Printf("Volume: zone must be 1 or 2")
+		return
+	}
+	msg := []byte(fmt.Sprintf("PC_/%d%d\r", z, m))
 	a.QueueWrite(msg)
 }
 
-func (a *ArcamAVRController) Unmute() {
-	log.Println("Unmute called")
-	msg := []byte("PC_.11\r")
-	a.QueueWrite(msg)
+func (a *ArcamAVRController) VolumeStatus(z int) {
+	a.Volume(9, z)
 }
 
-func (a *ArcamAVRController) MuteStatus() {
-	msg := []byte("PC_.19\r")
-	a.QueueWrite(msg)
+func (a *ArcamAVRController) VolumeInc(z int) {
+	a.Volume(1, z)
 }
 
-func (a *ArcamAVRController) AudioSelectStatus() {
-	msg := []byte("PC_119\r")
-	a.QueueWrite(msg)
+func (a *ArcamAVRController) VolumeDec(z int) {
+	a.Volume(0, z)
 }
 
-func (a *ArcamAVRController) AudioSelectSat() {
-	log.Println("AudioSelectSat called")
-	msg := []byte("PC_111\r")
-	a.QueueWrite(msg)
-}
-
-func (a *ArcamAVRController) AudioSelectPVR() {
-	a.AudioSelectAux()
-}
-
-func (a *ArcamAVRController) AudioSelectAux() {
-	log.Println("AudioSelectAux called")
-	msg := []byte("PC_113\r")
-	a.QueueWrite(msg)
-}
-
-func (a *ArcamAVRController) AudioSelectCD() {
-	log.Println("AudioSelectCD called")
-	msg := []byte("PC_115\r")
-	a.QueueWrite(msg)
-}
-
-func (a *ArcamAVRController) VolumeStatus() {
-	msg := []byte("PC_/19\r")
-	a.QueueWrite(msg)
-}
-
-func (a *ArcamAVRController) VolumeInc() {
-	log.Println("VolumeInc called")
-	msg := []byte("PC_/11\r")
-	a.QueueWrite(msg)
-}
-
-func (a *ArcamAVRController) VolumeDec() {
-	log.Println("VolumeDec called")
-	msg := []byte("PC_/10\r")
-	a.QueueWrite(msg)
-}
-
-func (a *ArcamAVRController) VolumeSet(v int) {
+func (a *ArcamAVRController) VolumeSet(v int, z int) {
 	if v < 0 || v > 100 {
 		log.Printf("SetVolume: volume must be between 0 and 100")
 		return
 	}
-	log.Printf("SetVolume called with volume %d", v)
-	msg := []byte("PC_01")
+	if z != 1 && z != 2 {
+		log.Printf("SetVolume: zone must be 1 or 2")
+		return
+	}
+	log.Printf("SetVolume called with volume %d for zone %d", v, z)
+	msg := []byte(fmt.Sprintf("PC_0%d", z))
 	msg = append(msg, 0x30+byte(v))
 	msg = append(msg, 0x0d) // \r
 	a.QueueWrite(msg)
