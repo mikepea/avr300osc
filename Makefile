@@ -70,7 +70,8 @@ install: build
 ## deploy to systemd
 .PHONY: deploy-systemd
 deploy-systemd: install
-	sudo install -m 0644 systemd/avr300osc.service /lib/systemd/system/
+	sudo install -m 0644 systemd/avr300osc.service /etc/systemd/system/
+	sudo systemctl enable avr300osc
 	sudo systemctl daemon-reload
 
 ## deploy
